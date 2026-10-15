@@ -1,0 +1,182 @@
+# SPDX-FileCopyrightText: 2024 simple_sat contributors <https://github.com/ash-project/simple_sat/graphs.contributors>
+#
+# SPDX-License-Identifier: MIT
+
+# Verbatim copy of lib/simple_sat.ex from the v0.1.4 release
+# (https://github.com/ash-project/simple_sat/blob/v0.1.4/lib/simple_sat.ex,
+# commit ec07c6340c900c25d032c8cb26c76683a6caf823), with only the module renamed
+# so it can be benchmarked against the current SimpleSat. Test-only, not shipped.
+
+defmodule SimpleSatV014 do
+  @moduledoc """
+  A simple, dependency free boolean satisfiability solver.
+
+  This was created for folks having trouble running `picosat_elixir`
+  to use as a drop-in replacement for Ash Framework, but feel free to use it in
+  any way you see fit.
+
+  SimpleSat expects to receive a list of lists of integers, where each integer
+  represents a variable. If the integer is negative, it represents the negation
+  of said variable.
+
+  Additionally, SimpleSat expects to receive variables in "Conjunctive Normal Form" or CNF.
+  This is the same interface that `picosat_elixir` expects. CNF is a conjunction of disjunctions.
+  In other words, it is a list of statements that must *all be true*, where each statement is a list of
+  variables where at *least one must be true*. For example:
+
+  ```elixir
+  # A AND (NOT A)
+  [[1], [-1]]
+
+  # A AND (A OR B)
+  [[1], [1, 2]]
+
+  # A AND B AND C
+  [[1], [2], [3]]
+  ```
+  """
+
+  @doc """
+  Provide a valid solution for a statement in CNF form
+  """
+  @spec solve([[integer]]) :: {:ok, [integer]} | {:error, :unsatisfiable}
+  def solve(clauses)
+  def solve([]), do: {:ok, []}
+
+  def solve(cnf_integer) do
+    {statements, all_vars} =
+      cnf_integer
+      |> Enum.reduce({[], []}, fn statement, {statements, all_vars} ->
+        {statement, all_vars} =
+          Enum.reduce(statement, {[], all_vars}, fn var, {statement, all_vars} ->
+            {[variable(var) | statement], [abs(var) | all_vars]}
+          end)
+
+        {[statement | statements], all_vars}
+      end)
+
+    all_vars = Enum.uniq(all_vars)
+
+    Enum.find_value(all_vars, {:error, :unsatisfiable}, fn var ->
+      if solution = find_solution(var, all_vars -- [var], statements) do
+        {:ok, Enum.sort_by(solution, &abs/1)}
+      end
+    end)
+  end
+
+  defp find_solution(var, other_vars, statements, trail \\ []) do
+    # --- Try var = true
+    case simplify(guess_value(statements, var, true)) do
+      true ->
+        [var | trail]
+
+      false ->
+        # fall through and try var = false
+        try_false(var, other_vars, statements, trail)
+
+      simp_true ->
+        case branch(other_vars, simp_true, [var | trail]) do
+          # <— BACKTRACK
+          nil -> try_false(var, other_vars, statements, trail)
+          sol -> sol
+        end
+    end
+  end
+
+  defp try_false(var, other_vars, statements, trail) do
+    case simplify(guess_value(statements, var, false)) do
+      true ->
+        [-var | trail]
+
+      false ->
+        nil
+
+      simp_false ->
+        branch(other_vars, simp_false, [-var | trail])
+    end
+  end
+
+  defp branch([], _simp, _trail), do: nil
+
+  defp branch([next | rest], simp, trail),
+    do: find_solution(next, rest, simp, trail)
+
+  defp simplify(statements) do
+    statements
+    |> Enum.map(fn statement ->
+      simplify_statement(statement)
+    end)
+    |> case do
+      [] ->
+        false
+
+      statements ->
+        cond do
+          Enum.any?(statements, &(&1 == false)) ->
+            false
+
+          Enum.all?(statements, &(&1 == true)) ->
+            true
+
+          true ->
+            statements
+        end
+    end
+  end
+
+  defp simplify_statement(true) do
+    true
+  end
+
+  defp simplify_statement(statement) do
+    if Enum.any?(statement, &true?/1) do
+      true
+    else
+      if Enum.all?(statement, &false?/1) do
+        false
+      else
+        Enum.reject(statement, &false?/1)
+      end
+    end
+  end
+
+  defp true?({:const, true}), do: true
+  defp true?(_), do: false
+
+  defp false?({:const, false}), do: true
+  defp false?(_), do: false
+
+  defp guess_value(statements, var, value) do
+    var =
+      if value == true do
+        var
+      else
+        -var
+      end
+
+    Enum.map(statements, fn
+      true ->
+        true
+
+      statement ->
+        Enum.map(statement, fn
+          {:variable, s_var} ->
+            cond do
+              s_var == var ->
+                {:const, true}
+
+              s_var == -var ->
+                {:const, false}
+
+              true ->
+                {:variable, s_var}
+            end
+
+          other ->
+            other
+        end)
+    end)
+  end
+
+  defp variable(var), do: {:variable, var}
+end
