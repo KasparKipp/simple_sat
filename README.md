@@ -13,7 +13,7 @@ SPDX-License-Identifier: MIT
 
 # SimpleSat
 
-Benchmarking branch for [PR #TODO](TODO) built on top of the DPLL rewrite (`feat_performance_refactor`).
+Benchmarking branch for [simple_sat PR #28](https://github.com/ash-project/simple_sat/pull/28) built on top of the DPLL rewrite (`feat_performance_refactor`).
 
 Using [Benchee](https://benchee.hexdocs.pm) comparing three solvers:
 
