@@ -1,0 +1,62 @@
+Picosat vs SimpleSat v0.1.4 vs SimpleSat (current), Benchee 1.5.1
+  OS / CPU:      macOS, Apple M3 Max, 14 cores, 36 GB
+  Elixir/Erlang: 1.20.4 / 29.1.1 (JIT enabled)
+  picosat build: optimized (-O3 -DNDEBUG)
+  benchee:       warmup 0.5s, time 2s, memory_time 0.5s per job; medians shown
+  cases:         one batch per row, the job solves all of it; random families use 10 seeded instances
+  cap:           a solver whose batch takes over 5s is skipped ("> 5s")
+  vs columns:    other solver ÷ current simple_sat; above 1x the current one is faster / allocates less
+  memory:        BEAM allocations incl. garbage; Picosat's C memory is invisible, its column (*) is marshalling only
+
+== Tiny formulas (typical web-app constraints) ==
+                                       ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
+case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
+---------------------------------------------------------------------------------------------------------------------------------------------------
+voting (3 vars, 4 clauses)  SAT        3.5µs       833ns       792ns       1.1x        4.5x        72B         2.5KB       2.2KB       1.2x
+select one of 5             SAT        5.5µs       4.3µs       1.9µs       2.2x        2.9x        104B        10.2KB      4.2KB       2.5x
+select one of 20            SAT        24.2µs      335.5µs     72.5µs      4.6x        0.33x       344B        507.9KB     101.5KB     5.0x
+
+== Trivial unit clauses (no search, pure overhead) ==
+                                       ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
+case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
+---------------------------------------------------------------------------------------------------------------------------------------------------
+100 unit clauses            SAT        14.8µs      482.1µs     22.8µs      21.2x       0.65x       24B         638.2KB     52.0KB      12.3x
+500 unit clauses            SAT        52.5µs      13.22ms     148.2µs     89.2x       0.35x       24B         14.6MB      315.2KB     47.3x
+1000 unit clauses           SAT        93.8µs      57.35ms     372.5µs     154.0x      0.25x       24B         57.8MB      637.5KB     92.8x
+
+== Planted graph 3-coloring (satisfiable), 10 instances per case ==
+                                       ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
+case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
+---------------------------------------------------------------------------------------------------------------------------------------------------
+V=20 E=40                   SAT        406.9µs     65.45ms     1.37ms      47.6x       0.3x        9.6KB       86.1MB      2.1MB       40.5x
+V=50 E=100                  SAT        985.8µs     > 5s        7.61ms      n/a         0.13x       23.7KB      n/a         11.3MB      n/a
+V=100 E=200                 SAT        2.43ms      > 5s        96.3ms      n/a         0.025x      47.1KB      n/a         155.1MB     n/a
+
+== N-Queens (satisfiable) ==
+                                       ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
+case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
+---------------------------------------------------------------------------------------------------------------------------------------------------
+n=4 vars=16                 SAT        19.0µs      274.3µs     19.9µs      13.8x       0.95x       280B        394.5KB     33.1KB      11.9x
+n=8 vars=64                 SAT        101.8µs     71.22ms     2.06ms      34.6x       0.049x      1.0KB       91.3MB      3.0MB       30.7x
+n=12 vars=144               SAT        293.7µs     828.36ms    8.28ms      100.0x      0.035x      2.3KB       1.08GB      12.0MB      92.0x
+n=16 vars=256               SAT        1.33ms      > 5s        24.73ms     n/a         0.054x      4.0KB       n/a         29.7MB      n/a
+
+== Pigeonhole PHP(h+1 pigeons, h holes), all UNSAT ==
+                                       ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
+case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
+---------------------------------------------------------------------------------------------------------------------------------------------------
+holes=3 vars=12             UNSAT      11.3µs      2.97ms      17.9µs      165.9x      0.63x       24B         4.9MB       41.6KB      120.3x
+holes=4 vars=20             UNSAT      26.8µs      115.36ms    150.1µs     768.6x      0.18x       24B         151.9MB     346.3KB     449.1x
+holes=5 vars=30             UNSAT      108.8µs     3.28s       1.73ms      1897.4x     0.063x      24B         4.61GB      3.7MB       1272.2x
+holes=6 vars=42             UNSAT      2.01ms      > 5s        24.09ms     n/a         0.084x      24B         n/a         45.2MB      n/a
+holes=7 vars=56             UNSAT      14.33ms     > 5s        325.2ms     n/a         0.044x      24B         n/a         597.0MB     n/a
+
+== Random 3-SAT, clause/var ratio 4.26, 10 instances per case ==
+                                       ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
+case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
+---------------------------------------------------------------------------------------------------------------------------------------------------
+n=20 m=85                   8/10 SAT   205.1µs     956.17ms    851.6µs     1122.8x     0.24x       2.7KB       1.19GB      1.3MB       954.6x
+n=40 m=170                  8/10 SAT   422.7µs     > 5s        11.77ms     n/a         0.036x      5.2KB       n/a         18.1MB      n/a
+n=60 m=256                  3/10 SAT   1.52ms      > 5s        119.0ms     n/a         0.013x      3.0KB       n/a         182.2MB     n/a
+n=80 m=341                  6/10 SAT   3.53ms      > 5s        351.39ms    n/a         0.01x       7.7KB       n/a         514.0MB     n/a
+n=100 m=426                 7/10 SAT   8.61ms      > 5s        3.18s       n/a         0.003x      11.2KB      n/a         2.88GB      n/a

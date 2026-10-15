@@ -14,13 +14,27 @@ defmodule SimpleSat.MixProject do
       version: @version,
       elixir: "~> 1.13",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       description: @description,
       source_url: "https://github.com/ash-project/simple_sat",
       homepage_url: "https://github.com/ash-project/simple_sat",
       deps: deps(),
+      aliases: aliases(),
       docs: docs(),
       package: package()
     ]
+  end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
+
+  # The bench compares against SimpleSatV014, which only compiles under test.
+  def cli do
+    [preferred_envs: [bench: :test]]
+  end
+
+  defp aliases do
+    [bench: "run bench/comparison.exs"]
   end
 
   defp docs() do
@@ -80,7 +94,10 @@ defmodule SimpleSat.MixProject do
       {:sobelow, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:git_ops, "~> 2.5", only: [:dev, :test]},
       {:doctor, "~> 0.21", only: [:dev, :test]},
-      {:picosat_elixir, "~> 0.2", only: [:dev, :test]},
+      # Built as a prod dep: picosat only compiles the NIF with -O3 under MIX_ENV=prod,
+      # which the comparison bench relies on.
+      {:picosat_elixir, "~> 0.2", only: [:dev, :test], env: :prod},
+      {:benchee, "~> 1.5", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.2", only: [:dev, :test]}
     ]
   end
