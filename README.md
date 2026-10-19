@@ -17,6 +17,29 @@ A simple, dependency free boolean satisfiability solver.
 
 See the [documentation](https://hexdocs.pm/simple_sat) for more.
 
+## Benchmark branch
+
+This is the `sat_bench` branch. It ships the released solver plus three
+candidates (`SimpleSat.DPLL`, `SimpleSat.DPLLOptimized`, `SimpleSat.CDCL`)
+and a `mix sat.bench` task that records every formula your test suite hands
+the SAT solver and times each solver on exactly those formulas. To try it in
+an Ash app, swap the dependency for the branch and run the task in the test
+environment:
+
+```elixir
+{:simple_sat, github: "KasparKipp/simple_sat", branch: "sat_bench", override: true},
+# Also bench against optimised picosat
+{:picosat_elixir, "~> 0.2", env: :prod},
+```
+
+```sh
+rm -rf _build/test
+MIX_ENV=test mix deps.get
+MIX_ENV=test mix sat.bench
+```
+
+`MIX_ENV=test mix help sat.bench` has the details. Everything below is the regular README.
+
 ## Installation
 
 ```elixir

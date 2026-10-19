@@ -28,3 +28,6 @@ simple_sat-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Recordings and reports written by `mix sat.bench`.
+/sat_bench/
