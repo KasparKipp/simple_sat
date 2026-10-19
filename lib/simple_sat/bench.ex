@@ -17,7 +17,6 @@ defmodule SimpleSat.Bench do
     {"SimpleSat.CDCL", SimpleSat.CDCL}
   ]
   @min_samples 5
-  @largest 5
   @default_seconds 3.0
   @default_timeout 5.0
 
@@ -30,7 +29,8 @@ defmodule SimpleSat.Bench do
 
   Options:
 
-    * `:seconds` - time spent per solver on the whole workload (default 3.0)
+    * `:seconds` - time spent per solver on the whole workload, and again in
+      total on timing every solver on every distinct formula (default 3.0)
     * `:timeout` - seconds a solver may spend on one formula before it is
       dropped from the comparison (default 5.0)
     * `:log` - progress callback, `fn message -> any end` (default `IO.puts/1`)
@@ -61,14 +61,8 @@ defmodule SimpleSat.Bench do
         {name, samples(fn -> Enum.each(workload, &solver.solve/1) end, seconds)}
       end
 
-    largest =
-      for {hash, cnf} <- largest_formulas(formulas) do
-        per_solver =
-          for {name, solver} <- solvers,
-              do: {name, samples(fn -> solver.solve(cnf) end, seconds / 4)}
-
-        {hash, cnf, per_solver}
-      end
+    log.("sat_bench: timing every solver on each of the #{map_size(formulas)} formulas")
+    per_formula = time_each_formula(formulas, solvers, seconds)
 
     report =
       Report.render(%{
@@ -76,7 +70,7 @@ defmodule SimpleSat.Bench do
         calls: calls,
         formulas: formulas,
         whole: whole,
-        largest: largest,
+        per_formula: per_formula,
         gave_up: gave_up,
         timeout: timeout
       })
@@ -93,12 +87,19 @@ defmodule SimpleSat.Bench do
     end
   end
 
-  @spec largest_formulas(%{Recording.hash() => Recording.cnf()}) ::
-          [{Recording.hash(), Recording.cnf()}]
-  defp largest_formulas(formulas) do
-    formulas
-    |> Enum.sort_by(fn {_hash, cnf} -> -length(cnf) end)
-    |> Enum.take(@largest)
+  # Times every solver on every distinct formula, splitting `seconds` evenly
+  # over the solver/formula pairs (each still gets at least @min_samples runs).
+  @spec time_each_formula(%{Recording.hash() => Recording.cnf()}, [solver()], number()) ::
+          [{Recording.hash(), Recording.cnf(), [{String.t(), samples()}]}]
+  defp time_each_formula(formulas, solvers, seconds) do
+    budget = seconds / max(map_size(formulas) * length(solvers), 1)
+
+    for {hash, cnf} <- formulas do
+      per_solver =
+        for {name, solver} <- solvers, do: {name, samples(fn -> solver.solve(cnf) end, budget)}
+
+      {hash, cnf, per_solver}
+    end
   end
 
   # Every solver must agree on satisfiability, and every model must satisfy

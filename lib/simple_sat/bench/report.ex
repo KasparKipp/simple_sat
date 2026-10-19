@@ -9,13 +9,14 @@ defmodule SimpleSat.Bench.Report do
 
   @label_width 24
   @column 14
+  @largest 5
 
   @type run :: %{
           app: String.t() | atom(),
           calls: [String.t()],
           formulas: map(),
           whole: [{String.t(), [float()]}],
-          largest: [{String.t(), [[integer()]], [{String.t(), [float()]}]}],
+          per_formula: [{String.t(), [[integer()]], [{String.t(), [float()]}]}],
           gave_up: [{String.t(), String.t()}],
           timeout: number()
         }
@@ -28,7 +29,8 @@ defmodule SimpleSat.Bench.Report do
     IO.iodata_to_binary([
       header(run),
       workload_table(run.whole),
-      largest_table(run.largest, names, solver_column),
+      wins_table(run.per_formula, names),
+      largest_table(largest(run.per_formula), names, solver_column),
       gave_up(run.gave_up, run.timeout)
     ])
   end
@@ -61,6 +63,40 @@ defmodule SimpleSat.Bench.Report do
         )
       end
     ]
+  end
+
+  # How many formulas each solver solved fastest (lowest median); a tie counts
+  # for every solver involved.
+  defp wins_table(per_formula, names) do
+    total = length(per_formula)
+    wins = Map.new(names, &{&1, 0})
+
+    wins =
+      Enum.reduce(per_formula, wins, fn {_hash, _cnf, per_solver}, wins ->
+        medians = Enum.map(per_solver, fn {name, samples} -> {name, median(samples)} end)
+        fastest = medians |> Enum.map(&elem(&1, 1)) |> Enum.min()
+
+        for {name, median} <- medians, median == fastest, reduce: wins do
+          wins -> Map.update!(wins, name, &(&1 + 1))
+        end
+      end)
+
+    [
+      "\nFastest per formula: formulas where the solver had the lowest median, of #{total}\n",
+      row(["solver", "formulas", "share"], @column),
+      for {name, count} <- Enum.sort_by(wins, fn {_name, count} -> -count end) do
+        row([name, Integer.to_string(count), share(count, total)], @column)
+      end
+    ]
+  end
+
+  defp share(_count, 0), do: "n/a"
+  defp share(count, total), do: "#{:erlang.float_to_binary(100 * count / total, decimals: 1)}%"
+
+  defp largest(per_formula) do
+    per_formula
+    |> Enum.sort_by(fn {_hash, cnf, _per_solver} -> -length(cnf) end)
+    |> Enum.take(@largest)
   end
 
   defp largest_table(largest, names, column) do
