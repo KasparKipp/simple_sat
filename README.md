@@ -21,16 +21,21 @@ Using [Benchee](https://benchee.hexdocs.pm) comparing three solvers:
 | ------ | ---------- |
 | [picosat](https://picosat-elixir.hexdocs.pm/) | `picosat_elixir`, a C NIF running a CDCL solver (clause learning, non-chronological backtracking) |
 | [simple_sat 0.1.4](https://simple-sat.hexdocs.pm/0.1.4) | The last released SimpleSat, vendored into `test/support/simple_sat_v014.ex` as `SimpleSatV014` |
-| `simple_sat` | `lib/simple_sat.ex` from branch `feat_performance_refactor` |
+| `simple_sat` | `lib/simple_sat.ex` from branch `feat_performance_refactor`: the DPLL rewrite plus its `perf:` commits |
 
 ### Running it
 
 ```sh
 mix deps.get
-mix bench
+mix bench          # full comparison, writes ./comparison_bench_results.txt
+mix bench --quick  # picosat vs staged (git index) vs working tree on the small cases, ~35 s
 ```
 
-Output is written to `./comparison_bench_results.txt`
+`--quick` is the inner loop for optimisation work. It runs picosat, the
+pre-optimisation DPLL (`SimpleSatDpll`, vendored in `test/support` from
+revision `d4c18c8`), the staged `lib/simple_sat.ex` compiled from the git index,
+and the working tree in one Benchee session, so a change is always measured
+against both the last accepted version and the starting point.
 
 ### How it measures
 
@@ -60,27 +65,39 @@ Full output is in [comparison_bench_results.txt](./comparison_bench_results.txt)
 
 | Case                       | picosat | 0.1.4    | current | current vs 0.1.4 | current vs picosat |
 | -------------------------- | ------- | -------- | ------- | ---------------- | ------------------ |
-| voting (3 vars, 4 clauses) | 3.5µs   | 833ns    | 792ns   | 1.1x faster      | 4.5x faster        |
-| select one of 20           | 24.2µs  | 335.5µs  | 72.5µs  | 4.6x faster      | 3x slower          |
-| 1000 unit clauses          | 93.8µs  | 57.35ms  | 372.5µs | 154x faster      | 4x slower          |
-| N-Queens n=12              | 293.7µs | 828.36ms | 8.28ms  | 100x faster      | 28x slower         |
-| pigeonhole holes=5 (UNSAT) | 108.8µs | 3.28s    | 1.73ms  | 1897x faster     | 16x slower         |
-| random 3-SAT n=20 (×10)    | 205.1µs | 956.17ms | 851.6µs | 1123x faster     | 4x slower          |
-| random 3-SAT n=100 (×10)   | 8.61ms  | > 5s     | 3.18s   | n/a              | 370x slower        |
-
+| voting (3 vars, 4 clauses) | 2.4µs   | 792ns    | 250ns   | 3.2x faster      | 9.5x faster        |
+| select one of 20           | 19.8µs  | 345.9µs  | 8.6µs   | 40x faster       | 2.3x faster        |
+| select one of 50           | 89.8µs  | 5.94ms   | 52.7µs  | 113x faster      | 1.7x faster        |
+| 100 unit clauses           | 11.0µs  | 494.2µs  | 7.1µs   | 70x faster       | 1.6x faster        |
+| 1000 unit clauses          | 69.7µs  | 58.82ms  | 156.1µs | 377x faster      | 2.2x slower        |
+| N-Queens n=8               | 92.4µs  | 76.56ms  | 294.0µs | 260x faster      | 3.2x slower        |
+| N-Queens n=12              | 268.5µs | 844.72ms | 1.46ms  | 579x faster      | 5.4x slower        |
+| pigeonhole holes=4 (UNSAT) | 22.4µs  | 114.9ms  | 53.9µs  | 2131x faster     | 2.4x slower        |
+| pigeonhole holes=5 (UNSAT) | 102.7µs | 3.34s    | 651.3µs | 5128x faster     | 6.3x slower        |
+| random 3-SAT n=20 (×10)    | 164.2µs | 966.0ms  | 374.4µs | 2580x faster     | 2.3x slower        |
+| random 3-SAT n=100 (×10)   | 9.02ms  | > 5s     | 1.48s   | n/a              | 164x slower        |
 
 #### Claude Summary for results
 
 What the numbers show:
 
-- **Tiny formulas:** the current SimpleSat beats picosat, because a few clauses
-  solve faster in Elixir than picosat's fixed per-call cost (marshalling the
-  clauses, setting up the solver). By 16–20 variables picosat is level or
-  ahead.
-- **Against 0.1.4:** the current solver is faster in every case, from 1.1x on
-  the smallest formula to three orders of magnitude on search-heavy ones, and
-  allocates up to ~1000x less. 0.1.4 hits the 5 s cap on 9 of the 23 cases;
-  the current solver hits it on none.
-- **Against picosat on larger formulas:** the gap grows with search difficulty,
-  from a few times slower on easy structured instances to ~370x slower on
-  100-variable random 3-SAT. That is the cost of having no clause learning.
+- **Tiny and small formulas (up to ~50 variables, the web-app band):** the
+  current SimpleSat is faster than picosat on every row: 9.5x on the voting
+  formula, 2.3x on select-one-of-20, 1.7x on select-one-of-50, 1.8x on queens 4
+  and 1.5x on pigeonhole 3. Picosat pays a fixed ~3.5µs per call for marshalling and
+  solver setup that the Elixir solver never does, and the solver itself is now
+  cheap enough to stay ahead until roughly 50-60 variables.
+- **Against the first DPLL version (commit `dpll impl`):** the `perf:` commits
+  on `feat_performance_refactor` gained 2.7x on the tiny rows, 5-8x on
+  select-one, 3x on 1000 unit clauses, 5x on queens 8 and 3-SAT n=20, and cut
+  allocations 2-8x. The big levers were one fused pass per search step instead
+  of three Enum passes, integer comparison instead of MapSet hashing, and
+  trying the positive polarity first (select-one-of-50 went from 49 decisions
+  to 1).
+- **Against 0.1.4:** faster on every case, from 2.7x to over 4000x, and 0.1.4
+  still hits the 5 s cap on 9 of the 24 cases; the current solver hits it on
+  none.
+- **Larger formulas:** the gap to picosat grows with search depth, from 2-6x
+  on 64-144 variable structured instances to ~165x on 100-variable random
+  3-SAT. That is the cost of plain DPLL without clause learning, and it is out
+  of scope here: a separate CDCL experiment showed no benefit on small formulas.

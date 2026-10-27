@@ -12,6 +12,11 @@ defmodule ComparisonBench do
   table per family is printed at the end and written to
   `comparison_bench_results.txt` in the project root.
 
+  `mix bench --quick` is the fast inner loop for optimisation work: picosat vs
+  the pre-optimisation DPLL (`SimpleSatDpll`, vendored in test/support) vs the
+  staged SimpleSat (git index) vs the working tree, on the small-formula cases
+  only. It prints a single table and writes no file.
+
   Each case is a batch of instances (one for deterministic formulas,
   `@batch_size` seeded instances for random families); a job solves the
   whole batch. Before timing, every solver solves the batch once under a
@@ -43,12 +48,48 @@ defmodule ComparisonBench do
   @time 2
   @memory_time 0.5
 
-  def run do
+  # `mix bench --quick` is the inner loop for optimisation experiments: shorter
+  # runs, no memory measurement, and only the small-formula band web apps
+  # actually hit.
+  @quick %{
+    warmup: 0.3,
+    time: 1,
+    memory_time: 0,
+    solvers: ["picosat", "dpll", "staged", "simple_sat"],
+    cases: [
+      "voting (3 vars, 4 clauses)",
+      "select one of 5",
+      "select one of 20",
+      "select one of 50",
+      "100 unit clauses",
+      "500 unit clauses",
+      "V=20 E=40",
+      "n=4 vars=16",
+      "n=8 vars=64",
+      "holes=3 vars=12",
+      "holes=4 vars=20",
+      "n=20 m=85"
+    ]
+  }
+
+  @full %{
+    warmup: @warmup,
+    time: @time,
+    memory_time: @memory_time,
+    solvers: ["picosat", "simple_sat 0.1.4", "simple_sat"],
+    cases: :all
+  }
+
+  def run(argv) do
     ensure_optimized_picosat!()
 
+    if "--quick" in argv, do: run_quick(), else: run_full()
+  end
+
+  defp run_full do
     results =
       for {title, cases} <- families() do
-        {title, Enum.map(cases, &bench_case(title, &1))}
+        {title, Enum.map(cases, &bench_case(title, &1, @full))}
       end
 
     report = render(results)
@@ -56,12 +97,47 @@ defmodule ComparisonBench do
     File.write!(@results_path, report)
   end
 
-  defp solvers do
-    [
+  defp run_quick do
+    load_staged_solver!()
+
+    results =
+      for {title, cases} <- families(),
+          {name, _instances} = kase <- cases,
+          name in @quick.cases do
+        {title, bench_case(title, kase, @quick)}
+      end
+
+    IO.puts(render_quick(results))
+  end
+
+  defp solvers(%{solvers: names}) do
+    all = [
       {"picosat", &Picosat.solve/1},
       {"simple_sat 0.1.4", &SimpleSatV014.solve/1},
+      {"dpll", &SimpleSatDpll.solve/1},
+      {"staged", &SimpleSatStaged.solve/1},
       {"simple_sat", &SimpleSat.solve/1}
     ]
+
+    for {name, _solve} = solver <- all, name in names, do: solver
+  end
+
+  # Quick mode measures the working-tree solver against the last accepted
+  # one, which lives in the git index. Compile `:lib/simple_sat.ex` from the
+  # index under another module name so both run in the same Benchee session,
+  # which cancels out most machine drift between runs.
+  defp load_staged_solver! do
+    root = Path.expand("..", __DIR__)
+
+    case System.cmd("git", ["show", ":lib/simple_sat.ex"], cd: root, stderr_to_stdout: true) do
+      {source, 0} ->
+        source
+        |> String.replace("defmodule SimpleSat do", "defmodule SimpleSatStaged do")
+        |> Code.compile_string("simple_sat_staged.ex")
+
+      {output, status} ->
+        Mix.raise("cannot read staged lib/simple_sat.ex (git exit #{status}): #{output}")
+    end
   end
 
   defp families do
@@ -84,7 +160,8 @@ defmodule ComparisonBench do
      [
        {"voting (3 vars, 4 clauses)", [[[1, 2, -3], [2, 3], [-2], [-1, 3]]]},
        {"select one of 5", [select_one(5)]},
-       {"select one of 20", [select_one(20)]}
+       {"select one of 20", [select_one(20)]},
+       {"select one of 50", [select_one(50)]}
      ]}
   end
 
@@ -128,8 +205,10 @@ defmodule ComparisonBench do
   # Measurement: capped pre-screen with validation, then Benchee
   # ----------------------------------------------------------------------
 
-  defp bench_case(title, {name, instances}) do
-    screened = for {solver, solve} <- solvers(), do: {solver, solve, screen(solve, instances)}
+  defp bench_case(title, {name, instances}, config) do
+    screened =
+      for {solver, solve} <- solvers(config), do: {solver, solve, screen(solve, instances)}
+
     finished = for {solver, _solve, {:ok, results}} <- screened, do: {solver, results}
     verdict = validate!(name, instances, finished)
 
@@ -142,9 +221,9 @@ defmodule ComparisonBench do
       Benchee.run(jobs,
         title: title,
         inputs: [{name, instances}],
-        warmup: @warmup,
-        time: @time,
-        memory_time: @memory_time,
+        warmup: config.warmup,
+        time: config.time,
+        memory_time: config.memory_time,
         print: [benchmarking: false, configuration: false, fast_warning: false],
         formatters: [{Benchee.Formatters.Console, extended_statistics: true}]
       )
@@ -155,7 +234,12 @@ defmodule ComparisonBench do
          {scenario.run_time_data.statistics.median, scenario.memory_usage_data.statistics.median}}
       end)
 
-    %{name: name, verdict: verdict, measured: measured, system: suite.system}
+    %{
+      name: name,
+      verdict: verdict,
+      measured: measured,
+      system: suite.system
+    }
   end
 
   defp screen(solve, instances) do
@@ -366,8 +450,40 @@ defmodule ComparisonBench do
     String.duplicate("-", left) <> " #{label} " <> String.duplicate("-", dashes - left) <> " "
   end
 
+  # Compact quick-mode table, one row per case.
+  @quick_columns ["picosat", "dpll", "staged", "current", "vs dpll", "vs staged", "vs picosat"]
+
+  defp render_quick(results) do
+    header =
+      pad("case", @name_width) <>
+        pad("result", @result_width) <> Enum.map_join(@quick_columns, &pad(&1, @cell_width))
+
+    lines = [
+      "== quick: picosat vs dpll (pre-optimisation) vs staged (index) vs current (working tree); medians ==",
+      header,
+      String.duplicate("-", String.length(header)) | Enum.map(results, &render_quick_row/1)
+    ]
+
+    Enum.map_join(lines, "\n", &String.trim_trailing/1) <> "\n"
+  end
+
+  defp render_quick_row({_title, row}) do
+    %{name: name, verdict: verdict, measured: measured} = row
+    pico = measured["picosat"]
+    dpll = measured["dpll"]
+    staged = measured["staged"]
+    current = measured["simple_sat"]
+
+    cells =
+      [time(pico), time(dpll), time(staged), time(current)] ++
+        [ratio(dpll, current, 0), ratio(staged, current, 0), ratio(pico, current, 0)]
+
+    pad(name, @name_width) <>
+      pad(verdict, @result_width) <> Enum.map_join(cells, &pad(&1, @cell_width))
+  end
+
   defp render_row(%{name: name, verdict: verdict, measured: measured}) do
-    [pico, released, current] = Enum.map(solvers(), fn {solver, _} -> measured[solver] end)
+    [pico, released, current] = Enum.map(solvers(@full), fn {solver, _} -> measured[solver] end)
 
     cells =
       [time(pico), time(released), time(current)] ++
@@ -408,4 +524,4 @@ defmodule ComparisonBench do
   defp pad(string, width), do: String.pad_trailing(string, width - 1) <> " "
 end
 
-ComparisonBench.run()
+ComparisonBench.run(System.argv())
