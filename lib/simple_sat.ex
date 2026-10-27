@@ -57,18 +57,57 @@ defmodule SimpleSat do
   def solve([]), do: {:ok, []}
 
   def solve(clauses) do
-    case dpll(clauses, :none, %{}) do
+    case dpll(clauses, :none, new_assignment(max_var(clauses))) do
       nil -> {:error, :unsatisfiable}
       assignment -> {:ok, solution(clauses, assignment)}
     end
   end
 
+  # The assignment is a tuple indexed by variable (nil, true or false) when
+  # the largest variable fits @dense_limit: elem/2 and put_elem/3 on a small
+  # tuple beat map lookups and puts, and the tuple is already ordered by
+  # variable, so the solution needs no sort. Above the limit a map is used,
+  # so sparse variable ids cannot allocate a large tuple.
+  @dense_limit 256
+
+  defp new_assignment(max_var) when max_var <= @dense_limit,
+    do: :erlang.make_tuple(max_var + 1, nil)
+
+  defp new_assignment(_max_var), do: %{}
+
+  defp max_var(clauses), do: max_var(clauses, 0)
+
+  defp max_var([], max), do: max
+  defp max_var([clause | rest], max), do: max_var(rest, max_literal(clause, max))
+
+  defp max_literal([], max), do: max
+  defp max_literal([literal | rest], max) when literal > max, do: max_literal(rest, literal)
+  defp max_literal([literal | rest], max) when -literal > max, do: max_literal(rest, -literal)
+  defp max_literal([_literal | rest], max), do: max_literal(rest, max)
+
   # Variables no clause ended up depending on are unconstrained; default
   # them to true so the solution covers every input variable. Then sort by
-  # variable with `:lists.keysort/2`.
+  # variable: a tuple is walked from the largest variable down, a map goes
+  # through `:lists.keysort/2`.
+  defp solution(clauses, assignment) when is_tuple(assignment) do
+    completed = complete(clauses, assignment)
+    collect(completed, tuple_size(completed) - 1, [])
+  end
+
   defp solution(clauses, assignment) do
     for {var, value} <- :lists.keysort(1, Map.to_list(complete(clauses, assignment))),
         do: if(value, do: var, else: -var)
+  end
+
+  # Variables absent from the formula are still nil and are skipped.
+  defp collect(_assignment, 0, acc), do: acc
+
+  defp collect(assignment, var, acc) do
+    case elem(assignment, var) do
+      nil -> collect(assignment, var - 1, acc)
+      true -> collect(assignment, var - 1, [var | acc])
+      false -> collect(assignment, var - 1, [-var | acc])
+    end
   end
 
   defp complete([], assignment), do: assignment
@@ -77,6 +116,15 @@ defmodule SimpleSat do
     do: complete(rest, complete_clause(clause, assignment))
 
   defp complete_clause([], assignment), do: assignment
+
+  defp complete_clause([literal | rest], assignment) when is_tuple(assignment) do
+    var = abs(literal)
+
+    case elem(assignment, var) do
+      nil -> complete_clause(rest, put_elem(assignment, var, true))
+      _value -> complete_clause(rest, assignment)
+    end
+  end
 
   defp complete_clause([literal | rest], assignment) do
     var = abs(literal)
@@ -123,6 +171,17 @@ defmodule SimpleSat do
   defp lookup(_units, assignment), do: {:many, assignment}
 
   defp record_units([], assignment), do: assignment
+
+  defp record_units([unit | rest], assignment) when is_tuple(assignment) do
+    var = abs(unit)
+    value = unit > 0
+
+    case elem(assignment, var) do
+      nil -> record_units(rest, put_elem(assignment, var, value))
+      ^value -> record_units(rest, assignment)
+      _other -> :conflict
+    end
+  end
 
   defp record_units([unit | rest], assignment) do
     var = abs(unit)
@@ -193,11 +252,21 @@ defmodule SimpleSat do
   # The value of a literal under the literals assigned in the last step:
   # true (clause satisfied), false (literal falsified) or nil (untouched).
   # A single assigned literal is matched by integer comparison; a batch is
-  # looked up in the assignment map, one lookup per literal.
+  # looked up in the assignment, one lookup per literal.
   @compile {:inline, status: 2}
   defp status(literal, {:one, assigned}) when literal == assigned, do: true
   defp status(literal, {:one, assigned}) when literal == -assigned, do: false
   defp status(_literal, {:one, _assigned}), do: nil
+
+  defp status(literal, {:many, assignment}) when is_tuple(assignment) and literal > 0,
+    do: elem(assignment, literal)
+
+  defp status(literal, {:many, assignment}) when is_tuple(assignment) do
+    case elem(assignment, -literal) do
+      nil -> nil
+      value -> not value
+    end
+  end
 
   defp status(literal, {:many, assignment}) when literal > 0 do
     case assignment do
@@ -214,6 +283,9 @@ defmodule SimpleSat do
       _ -> nil
     end
   end
+
+  defp record(assignment, literal) when is_tuple(assignment),
+    do: put_elem(assignment, abs(literal), literal > 0)
 
   defp record(assignment, literal), do: Map.put(assignment, abs(literal), literal > 0)
 end
