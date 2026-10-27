@@ -65,25 +65,25 @@ Full output is in [comparison_bench_results.txt](./comparison_bench_results.txt)
 
 | Case                       | picosat | 0.1.4    | current | current vs 0.1.4 | current vs picosat |
 | -------------------------- | ------- | -------- | ------- | ---------------- | ------------------ |
-| voting (3 vars, 4 clauses) | 2.5µs   | 792ns    | 333ns    | 2.4x faster      | 7.5x faster        |
-| select one of 20           | 21.2µs  | 405.6µs  | 8.1µs    | 50x faster       | 2.6x faster        |
-| select one of 50           | 93.0µs  | 5.91ms   | 51.2µs   | 115x faster      | 1.8x faster        |
-| 100 unit clauses           | 11.3µs  | 495.0µs  | 3.7µs    | 134x faster      | 3.0x faster        |
-| 1000 unit clauses          | 69.0µs  | 58.11ms  | 116.3µs  | 500x faster      | 1.7x slower        |
-| N-Queens n=8               | 90.5µs  | 71.36ms  | 235.0µs  | 304x faster      | 2.6x slower        |
-| N-Queens n=12              | 261.7µs | 1.02s    | 1.65ms   | 615x faster      | 6.3x slower        |
-| pigeonhole holes=4 (UNSAT) | 22.3µs  | 112.63ms | 45.7µs   | 2464x faster     | 2.0x slower        |
-| pigeonhole holes=5 (UNSAT) | 100.3µs | 3.29s    | 454.3µs  | 7232x faster     | 4.5x slower        |
-| random 3-SAT n=20 (×10)    | 163.0µs | 949.37ms | 312.9µs  | 3034x faster     | 1.9x slower        |
-| random 3-SAT n=100 (×10)   | 8.5ms   | > 5s     | 941.15ms | n/a              | 111x slower        |
+| voting (3 vars, 4 clauses) | 2.4µs   | 791ns    | 292ns   | 2.7x faster      | 8.1x faster        |
+| select one of 20           | 19.9µs  | 345.6µs  | 7.7µs   | 45x faster       | 2.6x faster        |
+| select one of 50           | 87.8µs  | 5.83ms   | 50.2µs  | 116x faster      | 1.7x faster        |
+| 100 unit clauses           | 10.7µs  | 486.2µs  | 3.7µs   | 131x faster      | 2.9x faster        |
+| 1000 unit clauses          | 66.2µs  | 57.8ms   | 119.6µs | 483x faster      | 1.8x slower        |
+| N-Queens n=8               | 88.3µs  | 71.41ms  | 236.1µs | 302x faster      | 2.7x slower        |
+| N-Queens n=12              | 268.7µs | 1.02s    | 1.16ms  | 879x faster      | 4.3x slower        |
+| pigeonhole holes=4 (UNSAT) | 21.8µs  | 113.74ms | 44.2µs  | 2570x faster     | 2.0x slower        |
+| pigeonhole holes=5 (UNSAT) | 99.5µs  | 3.28s    | 455.5µs | 7205x faster     | 4.6x slower        |
+| random 3-SAT n=20 (×10)    | 163.7µs | 989.27ms | 320.8µs | 3084x faster     | 2.0x slower        |
+| random 3-SAT n=100 (×10)   | 8.75ms  | > 5s     | 1.32s   | n/a              | 151x slower        |
 
 #### Claude Summary for results
 
 What the numbers show:
 
 - **Tiny and small formulas (up to ~50 variables, the web-app band):** the
-  current SimpleSat is faster than picosat on every row: 7.5x on the voting
-  formula, 2.6x on select-one-of-20, 1.8x on select-one-of-50, 2.0x on queens 4
+  current SimpleSat is faster than picosat on every row: 8.1x on the voting
+  formula, 2.6x on select-one-of-20, 1.7x on select-one-of-50, 2.0x on queens 4
   and 1.6x on pigeonhole 3. Picosat pays a fixed ~3.5µs per call for marshalling and
   solver setup that the Elixir solver never does, and the solver itself is now
   cheap enough to stay ahead until roughly 50-60 variables.
@@ -97,13 +97,13 @@ What the numbers show:
 - **Tuple-indexed assignment:** the assignment map became a tuple indexed by variable when the
   largest variable is at most 256, with the map kept above that. Measured
   against the map version in the same session: 2x on 100 unit clauses, 1.4x
-  on coloring V=20, 1.2-1.8x on queens 8-16 and pigeonhole 4-6, 1.6x on
-  3-SAT n=100. Formulas of 1-10 clauses pay 5-18 ns for the extra max-variable
+  on coloring V=20, 1.2-1.8x on queens 8-16 and pigeonhole 4-6. Formulas of
+  1-10 clauses pay 5-18 ns for the extra max-variable
   pass and tuple allocation, 2-7% of their 50-250 ns.
 - **Against 0.1.4:** faster on every case, from 2.7x to over 4000x, and 0.1.4
   still hits the 5 s cap on 9 of the 24 cases; the current solver hits it on
   none.
-- **Larger formulas:** the gap to picosat grows with search depth, from 2-6x
-  on 64-144 variable structured instances to ~110x on 100-variable random
+- **Larger formulas:** the gap to picosat grows with search depth, from 2-5x
+  on 64-144 variable structured instances to ~150x on 100-variable random
   3-SAT. That is the cost of plain DPLL without clause learning, and it is out
   of scope here: a separate CDCL experiment showed no benefit on small formulas.
