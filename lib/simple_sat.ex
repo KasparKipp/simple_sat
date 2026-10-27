@@ -96,7 +96,10 @@ defmodule SimpleSat do
         assignment
 
       {clauses, [], shortest} ->
-        literal = hd(shortest)
+        # Try the shortest clause's variable true first. On "at most one"
+        # encodings the shortest clauses are the binary [-a, -b] ones; -a first
+        # sets variables false one at a time, a = true propagates the rest.
+        literal = abs(hd(shortest))
 
         try_literal(clauses, assignment, literal) ||
           try_literal(clauses, assignment, -literal)
