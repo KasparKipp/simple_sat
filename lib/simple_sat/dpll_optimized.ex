@@ -37,46 +37,15 @@ defmodule SimpleSat.DPLLOptimized do
   def solve([]), do: {:ok, []}
 
   def solve(clauses) do
-    # E4c: skip building the stats map; it showed up at ~10% of a 300ns solve.
-    {result, _counters} = run(clauses)
-    result
-  end
-
-  # E0: search-effort counters for the benchmark. Not part of the public API.
-  # `decisions` counts branch attempts (both polarities), `propagations` the
-  # literals assigned by unit propagation, `conflicts` the dead ends hit.
-  @doc false
-  @spec solve_with_stats([[integer]]) ::
-          {{:ok, [integer]} | {:error, :unsatisfiable},
-           %{
-             decisions: non_neg_integer,
-             propagations: non_neg_integer,
-             conflicts: non_neg_integer
-           }}
-  def solve_with_stats(clauses) do
-    {result, counters} = run(clauses)
-    {result, stats(counters)}
-  end
-
-  defp run([]), do: {{:ok, []}, {0, 0, 0}}
-
-  defp run(clauses) when is_list(clauses) do
-    # E5: no separate empty-clause scan; the first pass (`:none`) validates the
-    # input and conflicts on an empty clause itself.
-    case dpll(clauses, :none, %{}, {0, 0, 0}) do
-      {nil, counters} -> {{:error, :unsatisfiable}, counters}
-      {assignment, counters} -> {{:ok, solution(clauses, assignment)}, counters}
+    case dpll(clauses, :none, %{}) do
+      nil -> {:error, :unsatisfiable}
+      assignment -> {:ok, solution(clauses, assignment)}
     end
   end
 
-  defp run(other) do
-    raise ArgumentError, "expected a list of clauses, got: #{inspect(other)}"
-  end
-
-  # E5: variables no clause ended up depending on are unconstrained; default
+  # Variables no clause ended up depending on are unconstrained; default
   # them to true so the solution covers every input variable. Then sort by
-  # variable with `:lists.keysort/2`, which compares only the integer keys
-  # (a generic `:lists.sort/1` on the tuples measured 3x slower).
+  # variable with `:lists.keysort/2`.
   defp solution(clauses, assignment) do
     for {var, value} <- :lists.keysort(1, Map.to_list(complete(clauses, assignment))),
         do: if(value, do: var, else: -var)
@@ -98,59 +67,35 @@ defmodule SimpleSat.DPLLOptimized do
     end
   end
 
-  defp stats({decisions, propagations, conflicts}),
-    do: %{decisions: decisions, propagations: propagations, conflicts: conflicts}
-
-  # E2: the search runs on one fused pass per step. `reduce/2` walks the
-  # clause list once, applying the literals assigned in the previous step:
-  # satisfied clauses are dropped, falsified literals stripped, new unit
-  # clauses collected separately, and the shortest remaining clause tracked for
-  # branching. Before, each step scanned the clauses three times (collect
-  # units, assign, pick the shortest clause) through Enum closures.
-  #
-  # Invariant: `clauses` contains no literal of an already assigned variable,
-  # so a batch of freshly assigned units can be looked up in the assignment map
-  # itself instead of a MapSet (E3b).
-  defp dpll(clauses, assigned, assignment, counters) do
+  defp dpll(clauses, assigned, assignment) do
     case reduce(clauses, assigned) do
       :conflict ->
-        {nil, conflict(counters)}
+        nil
 
       {[], [], _shortest} ->
-        {assignment, counters}
+        assignment
 
       {clauses, [], shortest} ->
-        # E6: branch on the variable of the shortest clause, trying it true
-        # first. On "at most one" encodings the shortest clauses are the binary
-        # [-a, -b] ones; trying -a first sets variables false one at a time,
-        # while a = true satisfies the "at least one" clause and propagates the
-        # rest in a single step.
-        branch(clauses, assignment, abs(hd(shortest)), counters)
+        # Try the shortest clause's variable true first. On "at most one"
+        # encodings the shortest clauses are the binary [-a, -b] ones; -a first
+        # sets variables false one at a time, a = true propagates the rest.
+        literal = abs(hd(shortest))
+
+        try_literal(clauses, assignment, literal) ||
+          try_literal(clauses, assignment, -literal)
 
       {clauses, units, _shortest} ->
-        propagate(clauses, units, assignment, counters)
+        propagate(clauses, units, assignment)
     end
   end
 
-  defp branch(clauses, assignment, literal, counters) do
-    case try_literal(clauses, assignment, literal, counters) do
-      {nil, counters} -> try_literal(clauses, assignment, -literal, counters)
-      found -> found
-    end
-  end
+  defp try_literal(clauses, assignment, literal),
+    do: dpll(clauses, {:one, literal}, record(assignment, literal))
 
-  defp try_literal(clauses, assignment, literal, {decisions, propagations, conflicts}) do
-    counters = {decisions + 1, propagations, conflicts}
-    dpll(clauses, {:one, literal}, record(assignment, literal), counters)
-  end
-
-  # Record the unit literals found by the last pass, then reduce against them.
-  defp propagate(clauses, units, assignment, {decisions, propagations, conflicts}) do
-    counters = {decisions, propagations + length(units), conflicts}
-
+  defp propagate(clauses, units, assignment) do
     case record_units(units, assignment) do
-      :conflict -> {nil, conflict(counters)}
-      assignment -> dpll(clauses, lookup(units, assignment), assignment, counters)
+      :conflict -> nil
+      assignment -> dpll(clauses, lookup(units, assignment), assignment)
     end
   end
 
@@ -159,11 +104,10 @@ defmodule SimpleSat.DPLLOptimized do
 
   defp record_units([], assignment), do: assignment
 
-  # E4d: one map operation per unit. Put first; the map only keeps its size
-  # when the variable was already assigned, and only then is the value checked.
   defp record_units([unit | rest], assignment) do
     var = abs(unit)
     value = unit > 0
+
     updated = Map.put(assignment, var, value)
 
     cond do
@@ -173,13 +117,9 @@ defmodule SimpleSat.DPLLOptimized do
     end
   end
 
-  defp conflict({decisions, propagations, conflicts}),
-    do: {decisions, propagations, conflicts + 1}
-
-  # One pass over the clauses. Returns :conflict, or
+  # Apply the assigned literals to every clause: drop satisfied clauses, strip
+  # falsified literals, conflict if a clause becomes empty. Returns :conflict or
   # {remaining clauses, new unit literals, shortest remaining clause}.
-  # E4: the per-clause helpers are inlined; the profile showed their call
-  # overhead at roughly a quarter of the pass.
   @compile {:inline, reduce_clause: 2, shorter: 2, record: 2}
   defp reduce(clauses, assigned), do: reduce(clauses, assigned, [], [], nil)
 
@@ -201,28 +141,8 @@ defmodule SimpleSat.DPLLOptimized do
   defp shorter([_, _] = clause, _best), do: clause
   defp shorter(clause, best), do: if(length(clause) < length(best), do: clause, else: best)
 
-  # E1: scan without allocating and return the original clause when no literal
-  # was falsified; only clauses that actually shrink get rebuilt (in the
-  # original literal order). Before, every surviving clause was copied and
-  # reversed on every assignment.
-  # E5: the first pass has nothing assigned yet; use it to validate the input.
-  defp reduce_clause(clause, :none), do: validate_clause(clause, clause)
+  defp reduce_clause(clause, :none), do: clause
   defp reduce_clause(clause, assigned), do: scan_clause(clause, assigned, clause, 0)
-
-  defp validate_clause([], original), do: original
-
-  defp validate_clause([literal | rest], original)
-       when is_integer(literal) and literal != 0,
-       do: validate_clause(rest, original)
-
-  defp validate_clause([literal | _rest], original) do
-    raise ArgumentError,
-          "clause #{inspect(original)} contains #{inspect(literal)}, expected a non-zero integer"
-  end
-
-  defp validate_clause(other, _original) do
-    raise ArgumentError, "expected a clause (list of non-zero integers), got: #{inspect(other)}"
-  end
 
   defp scan_clause([], _assigned, original, _kept), do: original
 
@@ -232,7 +152,7 @@ defmodule SimpleSat.DPLLOptimized do
         :satisfied
 
       false ->
-        prefix = :lists.reverse(:lists.sublist(original, kept))
+        prefix = Enum.reverse(Enum.take(original, kept))
         rebuild_clause(rest, assigned, prefix)
 
       nil ->
@@ -240,7 +160,7 @@ defmodule SimpleSat.DPLLOptimized do
     end
   end
 
-  defp rebuild_clause([], _assigned, acc), do: :lists.reverse(acc)
+  defp rebuild_clause([], _assigned, acc), do: Enum.reverse(acc)
 
   defp rebuild_clause([literal | rest], assigned, acc) do
     case status(literal, assigned) do
@@ -250,7 +170,7 @@ defmodule SimpleSat.DPLLOptimized do
     end
   end
 
-  # E3: the value of a literal under the literals assigned in the last step:
+  # The value of a literal under the literals assigned in the last step:
   # true (clause satisfied), false (literal falsified) or nil (untouched).
   # A single assigned literal is matched by integer comparison; a batch is
   # looked up in the assignment map, one lookup per literal.
