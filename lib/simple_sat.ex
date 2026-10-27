@@ -60,7 +60,7 @@ defmodule SimpleSat do
     if Enum.any?(clauses, &(&1 == [])) do
       {:error, :unsatisfiable}
     else
-      case dpll(clauses, %{}) do
+      case dpll(clauses, :none, %{}) do
         nil ->
           {:error, :unsatisfiable}
 
@@ -79,66 +79,75 @@ defmodule SimpleSat do
     end
   end
 
-  defp dpll(clauses, assignment) do
-    case propagate(clauses, assignment) do
+  defp dpll(clauses, assigned, assignment) do
+    case reduce(clauses, assigned) do
       :conflict ->
         nil
 
-      {[], assignment} ->
+      {[], [], _shortest} ->
         assignment
 
-      {clauses, assignment} ->
-        literal = branch_literal(clauses)
+      {clauses, [], shortest} ->
+        literal = hd(shortest)
 
         try_literal(clauses, assignment, literal) ||
           try_literal(clauses, assignment, -literal)
+
+      {clauses, units, _shortest} ->
+        propagate(clauses, units, assignment)
     end
   end
 
-  defp try_literal(clauses, assignment, literal) do
-    case assign(clauses, MapSet.new([literal])) do
+  defp try_literal(clauses, assignment, literal),
+    do: dpll(clauses, {:one, literal}, record(assignment, literal))
+
+  defp propagate(clauses, units, assignment) do
+    case record_units(units, assignment) do
       :conflict -> nil
-      clauses -> dpll(clauses, record(assignment, literal))
+      assignment -> dpll(clauses, lookup(units, assignment), assignment)
     end
   end
 
-  # Repeatedly assign all unit clauses in one batch until none remain.
-  defp propagate(clauses, assignment) do
-    units =
-      Enum.reduce(clauses, MapSet.new(), fn
-        [literal], acc -> MapSet.put(acc, literal)
-        _clause, acc -> acc
-      end)
+  defp lookup([unit], _assignment), do: {:one, unit}
+  defp lookup(_units, assignment), do: {:many, assignment}
 
-    cond do
-      MapSet.size(units) == 0 ->
-        {clauses, assignment}
+  defp record_units([], assignment), do: assignment
 
-      Enum.any?(units, &MapSet.member?(units, -&1)) ->
-        :conflict
+  defp record_units([unit | rest], assignment) do
+    var = abs(unit)
+    value = unit > 0
 
-      true ->
-        assignment = Enum.reduce(units, assignment, &record(&2, &1))
-
-        case assign(clauses, units) do
-          :conflict -> :conflict
-          clauses -> propagate(clauses, assignment)
-        end
+    case assignment do
+      %{^var => ^value} -> record_units(rest, assignment)
+      %{^var => _other} -> :conflict
+      _unassigned -> record_units(rest, Map.put(assignment, var, value))
     end
   end
 
-  # Apply a set of true literals to every clause: drop satisfied clauses,
-  # strip falsified literals, conflict if a clause becomes empty.
-  defp assign(clauses, literals) do
-    Enum.reduce_while(clauses, [], fn clause, acc ->
-      case reduce_clause(clause, literals) do
-        :satisfied -> {:cont, acc}
-        [] -> {:halt, :conflict}
-        remaining -> {:cont, [remaining | acc]}
-      end
-    end)
+  # Apply the assigned literals to every clause: drop satisfied clauses, strip
+  # falsified literals, conflict if a clause becomes empty. Returns :conflict or
+  # {remaining clauses, new unit literals, shortest remaining clause}.
+  defp reduce(clauses, assigned), do: reduce(clauses, assigned, [], [], nil)
+
+  defp reduce([], _assigned, acc, units, shortest), do: {acc, units, shortest}
+
+  defp reduce([clause | rest], assigned, acc, units, shortest) do
+    case reduce_clause(clause, assigned) do
+      :satisfied -> reduce(rest, assigned, acc, units, shortest)
+      [] -> :conflict
+      [unit] -> reduce(rest, assigned, acc, [unit | units], shortest)
+      remaining -> reduce(rest, assigned, [remaining | acc], units, shorter(remaining, shortest))
+    end
   end
 
+  # Units are extracted, so a binary clause is the shortest possible; stop
+  # measuring once one is found.
+  defp shorter(clause, nil), do: clause
+  defp shorter(_clause, [_, _] = best), do: best
+  defp shorter([_, _] = clause, _best), do: clause
+  defp shorter(clause, best), do: if(length(clause) < length(best), do: clause, else: best)
+
+  defp reduce_clause(clause, :none), do: clause
   defp reduce_clause(clause, assigned), do: scan_clause(clause, assigned, clause, 0)
 
   defp scan_clause([], _assigned, original, _kept), do: original
@@ -167,22 +176,28 @@ defmodule SimpleSat do
     end
   end
 
-  # The value of a literal under the assigned literals: true (clause
-  # satisfied), false (literal falsified) or nil (untouched).
-  defp status(literal, assigned) do
-    cond do
-      MapSet.member?(assigned, literal) -> true
-      MapSet.member?(assigned, -literal) -> false
-      true -> nil
+  # The value of a literal under the literals assigned in the last step:
+  # true (clause satisfied), false (literal falsified) or nil (untouched).
+  # A single assigned literal is matched by integer comparison; a batch is
+  # looked up in the assignment map, one lookup per literal.
+  defp status(literal, {:one, assigned}) when literal == assigned, do: true
+  defp status(literal, {:one, assigned}) when literal == -assigned, do: false
+  defp status(_literal, {:one, _assigned}), do: nil
+
+  defp status(literal, {:many, assignment}) when literal > 0 do
+    case assignment do
+      %{^literal => value} -> value
+      _ -> nil
     end
   end
 
-  # Branch on a literal from the shortest clause — satisfying it removes the
-  # clause, and falsifying it shortens the clause towards a unit.
-  defp branch_literal(clauses) do
-    clauses
-    |> Enum.min_by(&length/1)
-    |> hd()
+  defp status(literal, {:many, assignment}) do
+    var = -literal
+
+    case assignment do
+      %{^var => value} -> not value
+      _ -> nil
+    end
   end
 
   defp record(assignment, literal), do: Map.put(assignment, abs(literal), literal > 0)
