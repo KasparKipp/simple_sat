@@ -57,25 +57,33 @@ defmodule SimpleSat do
   def solve([]), do: {:ok, []}
 
   def solve(clauses) do
-    if Enum.any?(clauses, &(&1 == [])) do
-      {:error, :unsatisfiable}
-    else
-      case dpll(clauses, :none, %{}) do
-        nil ->
-          {:error, :unsatisfiable}
+    case dpll(clauses, :none, %{}) do
+      nil -> {:error, :unsatisfiable}
+      assignment -> {:ok, solution(clauses, assignment)}
+    end
+  end
 
-        assignment ->
-          solution =
-            clauses
-            |> complete(assignment)
-            |> Enum.map(fn
-              {var, true} -> var
-              {var, false} -> -var
-            end)
-            |> Enum.sort_by(&abs/1)
+  # Variables no clause ended up depending on are unconstrained; default
+  # them to true so the solution covers every input variable. Then sort by
+  # variable with `:lists.keysort/2`.
+  defp solution(clauses, assignment) do
+    for {var, value} <- :lists.keysort(1, Map.to_list(complete(clauses, assignment))),
+        do: if(value, do: var, else: -var)
+  end
 
-          {:ok, solution}
-      end
+  defp complete([], assignment), do: assignment
+
+  defp complete([clause | rest], assignment),
+    do: complete(rest, complete_clause(clause, assignment))
+
+  defp complete_clause([], assignment), do: assignment
+
+  defp complete_clause([literal | rest], assignment) do
+    var = abs(literal)
+
+    case assignment do
+      %{^var => _value} -> complete_clause(rest, assignment)
+      _unassigned -> complete_clause(rest, Map.put(assignment, var, true))
     end
   end
 
@@ -201,13 +209,4 @@ defmodule SimpleSat do
   end
 
   defp record(assignment, literal), do: Map.put(assignment, abs(literal), literal > 0)
-
-  # Variables no clause ended up depending on are unconstrained, so any value
-  # satisfies the formula. Default them to true so the solution covers every
-  # input variable.
-  defp complete(clauses, assignment) do
-    for clause <- clauses, literal <- clause, reduce: assignment do
-      acc -> Map.put_new(acc, abs(literal), true)
-    end
-  end
 end

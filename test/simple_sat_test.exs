@@ -38,6 +38,11 @@ defmodule SimpleSatTest do
              SimpleSat.solve([[2], [-3], [4, 5], [-4, -1], [-5, -2], [-5, -3]])
   end
 
+  test "treats an empty clause as unsatisfiable" do
+    assert {:error, :unsatisfiable} = SimpleSat.solve([[]])
+    assert {:error, :unsatisfiable} = SimpleSat.solve([[1], []])
+  end
+
   test "solves this crazy example" do
     SimpleSat.solve([
       [1],
