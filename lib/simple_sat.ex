@@ -131,7 +131,7 @@ defmodule SimpleSat do
   # strip falsified literals, conflict if a clause becomes empty.
   defp assign(clauses, literals) do
     Enum.reduce_while(clauses, [], fn clause, acc ->
-      case reduce_clause(clause, literals, []) do
+      case reduce_clause(clause, literals) do
         :satisfied -> {:cont, acc}
         [] -> {:halt, :conflict}
         remaining -> {:cont, [remaining | acc]}
@@ -139,13 +139,41 @@ defmodule SimpleSat do
     end)
   end
 
-  defp reduce_clause([], _literals, acc), do: acc
+  defp reduce_clause(clause, assigned), do: scan_clause(clause, assigned, clause, 0)
 
-  defp reduce_clause([literal | rest], literals, acc) do
+  defp scan_clause([], _assigned, original, _kept), do: original
+
+  defp scan_clause([literal | rest], assigned, original, kept) do
+    case status(literal, assigned) do
+      true ->
+        :satisfied
+
+      false ->
+        prefix = Enum.reverse(Enum.take(original, kept))
+        rebuild_clause(rest, assigned, prefix)
+
+      nil ->
+        scan_clause(rest, assigned, original, kept + 1)
+    end
+  end
+
+  defp rebuild_clause([], _assigned, acc), do: Enum.reverse(acc)
+
+  defp rebuild_clause([literal | rest], assigned, acc) do
+    case status(literal, assigned) do
+      true -> :satisfied
+      false -> rebuild_clause(rest, assigned, acc)
+      nil -> rebuild_clause(rest, assigned, [literal | acc])
+    end
+  end
+
+  # The value of a literal under the assigned literals: true (clause
+  # satisfied), false (literal falsified) or nil (untouched).
+  defp status(literal, assigned) do
     cond do
-      MapSet.member?(literals, literal) -> :satisfied
-      MapSet.member?(literals, -literal) -> reduce_clause(rest, literals, acc)
-      true -> reduce_clause(rest, literals, [literal | acc])
+      MapSet.member?(assigned, literal) -> true
+      MapSet.member?(assigned, -literal) -> false
+      true -> nil
     end
   end
 
