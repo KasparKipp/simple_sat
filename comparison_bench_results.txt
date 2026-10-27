@@ -12,52 +12,52 @@ Picosat vs SimpleSat v0.1.4 vs SimpleSat (current), Benchee 1.5.1
                                        ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
 case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-voting (3 vars, 4 clauses)  SAT        2.4µs       792ns       250ns       3.2x        9.5x        72B         2.5KB       872B        3.0x
-select one of 5             SAT        4.3µs       4.3µs       625ns       6.9x        6.9x        104B        10.2KB      1.5KB       6.7x
-select one of 20            SAT        19.8µs      345.9µs     8.6µs       40.1x       2.3x        344B        507.9KB     12.3KB      41.1x
-select one of 50            SAT        89.8µs      5.94ms      52.7µs      112.8x      1.7x        824B        7.5MB       60.5KB      126.3x
+voting (3 vars, 4 clauses)  SAT        3.5µs       791ns       250ns       3.2x        14.2x       72B         2.5KB       656B        4.0x
+select one of 5             SAT        5.5µs       4.3µs       583ns       7.3x        9.4x        104B        10.2KB      984B        10.6x
+select one of 20            SAT        24.7µs      347.1µs     7.5µs       46.3x       3.3x        344B        507.9KB     10.3KB      49.1x
+select one of 50            SAT        102.7µs     5.88ms      49.3µs      119.4x      2.1x        824B        7.5MB       60.7KB      125.8x
 
 == Trivial unit clauses (no search, pure overhead) ==
                                        ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
 case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-100 unit clauses            SAT        11.0µs      494.2µs     7.1µs       69.8x       1.6x        24B         638.2KB     20.0KB      31.9x
-500 unit clauses            SAT        38.1µs      14.16ms     48.1µs      294.6x      0.79x       24B         14.6MB      106.2KB     140.6x
-1000 unit clauses           SAT        69.7µs      58.82ms     156.1µs     376.8x      0.45x       24B         57.8MB      201.5KB     293.6x
+100 unit clauses            SAT        15.2µs      481.0µs     3.6µs       132.7x      4.2x        24B         638.2KB     78.1KB      8.2x
+500 unit clauses            SAT        52.3µs      14.24ms     44.0µs      324.0x      1.2x        24B         14.6MB      210.9KB     70.8x
+1000 unit clauses           SAT        93.1µs      52.89ms     118.5µs     446.2x      0.79x       24B         57.8MB      445.2KB     132.9x
 
 == Planted graph 3-coloring (satisfiable), 10 instances per case ==
                                        ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
 case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-V=20 E=40                   SAT        330.5µs     67.9ms      444.0µs     152.9x      0.74x       9.6KB       86.1MB      563.9KB     156.4x
-V=50 E=100                  SAT        816.6µs     > 5s        3.42ms      n/a         0.24x       23.7KB      n/a         3.1MB       n/a
-V=100 E=200                 SAT        2.04ms      > 5s        48.78ms     n/a         0.042x      47.1KB      n/a         38.8MB      n/a
+V=20 E=40                   SAT        417.1µs     67.3ms      306.1µs     219.9x      1.4x        9.6KB       86.1MB      622.0KB     141.8x
+V=50 E=100                  SAT        1.02ms      > 5s        2.22ms      n/a         0.46x       23.7KB      n/a         4.9MB       n/a
+V=100 E=200                 SAT        2.45ms      > 5s        48.77ms     n/a         0.05x       47.1KB      n/a         38.8MB      n/a
 
 == N-Queens (satisfiable) ==
                                        ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
 case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-n=4 vars=16                 SAT        14.5µs      269.6µs     8.2µs       32.8x       1.8x        280B        394.5KB     15.8KB      25.0x
-n=8 vars=64                 SAT        92.4µs      76.56ms     294.0µs     260.4x      0.31x       1.0KB       91.3MB      376.0KB     248.6x
-n=12 vars=144               SAT        268.5µs     844.72ms    1.46ms      578.5x      0.18x       2.3KB       1.08GB      1.7MB       655.4x
-n=16 vars=256               SAT        1.31ms      > 5s        38.29ms     n/a         0.034x      4.0KB       n/a         41.3MB      n/a
+n=4 vars=16                 SAT        18.6µs      267.9µs     7.3µs       36.7x       2.5x        280B        394.5KB     13.0KB      30.3x
+n=8 vars=64                 SAT        102.4µs     71.54ms     231.4µs     309.2x      0.44x       1.0KB       91.3MB      558.9KB     167.2x
+n=12 vars=144               SAT        300.1µs     828.6ms     1.17ms      711.1x      0.26x       2.3KB       1.08GB      3.9MB       282.0x
+n=16 vars=256               SAT        1.37ms      > 5s        28.65ms     n/a         0.048x      4.0KB       n/a         138.4MB     n/a
 
 == Pigeonhole PHP(h+1 pigeons, h holes), all UNSAT ==
                                        ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
 case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-holes=3 vars=12             UNSAT      8.7µs       2.99ms      6.0µs       499.1x      1.5x        24B         4.9MB       14.8KB      338.6x
-holes=4 vars=20             UNSAT      22.4µs      114.9ms     53.9µs      2131.0x     0.41x       24B         151.9MB     135.2KB     1150.5x
-holes=5 vars=30             UNSAT      102.7µs     3.34s       651.3µs     5127.7x     0.16x       24B         4.61GB      1.5MB       3247.2x
-holes=6 vars=42             UNSAT      2.12ms      > 5s        10.65ms     n/a         0.2x        24B         n/a         16.9MB      n/a
-holes=7 vars=56             UNSAT      14.73ms     > 5s        124.58ms    n/a         0.12x       24B         n/a         179.2MB     n/a
+holes=3 vars=12             UNSAT      11.4µs      2.88ms      5.5µs       519.2x      2.1x        24B         4.9MB       13.4KB      374.3x
+holes=4 vars=20             UNSAT      26.6µs      112.53ms    43.5µs      2589.4x     0.61x       24B         151.9MB     114.5KB     1357.6x
+holes=5 vars=30             UNSAT      107.2µs     3.22s       459.3µs     7006.4x     0.23x       24B         4.61GB      1.2MB       4058.5x
+holes=6 vars=42             UNSAT      1.98ms      > 5s        6.04ms      n/a         0.33x       24B         n/a         16.1MB      n/a
+holes=7 vars=56             UNSAT      13.85ms     > 5s        93.68ms     n/a         0.15x       24B         n/a         265.0MB     n/a
 
 == Random 3-SAT, clause/var ratio 4.26, 10 instances per case ==
                                        ---------------------- time (median) ---------------------- --------------- memory (median) ---------------
 case                        result     picosat     0.1.4       current     vs 0.1.4    vs picosat  picosat*    0.1.4       current     vs 0.1.4
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-n=20 m=85                   8/10 SAT   164.2µs     966.0ms     374.4µs     2580.0x     0.44x       2.7KB       1.19GB      516.7KB     2409.3x
-n=40 m=170                  8/10 SAT   354.4µs     > 5s        6.04ms      n/a         0.059x      5.2KB       n/a         6.0MB       n/a
-n=60 m=256                  3/10 SAT   1.4ms       > 5s        53.55ms     n/a         0.026x      3.0KB       n/a         43.9MB      n/a
-n=80 m=341                  6/10 SAT   3.4ms       > 5s        212.36ms    n/a         0.016x      7.7KB       n/a         149.6MB     n/a
-n=100 m=426                 7/10 SAT   9.02ms      > 5s        1.48s       n/a         0.006x      11.2KB      n/a         995.6MB     n/a
+n=20 m=85                   8/10 SAT   207.9µs     929.8ms     321.3µs     2893.6x     0.65x       2.7KB       1.19GB      487.7KB     2552.6x
+n=40 m=170                  8/10 SAT   424.6µs     > 5s        4.41ms      n/a         0.096x      5.2KB       n/a         6.0MB       n/a
+n=60 m=256                  3/10 SAT   1.54ms      > 5s        36.09ms     n/a         0.043x      3.0KB       n/a         48.1MB      n/a
+n=80 m=341                  6/10 SAT   4.2ms       > 5s        136.4ms     n/a         0.031x      7.7KB       n/a         179.8MB     n/a
+n=100 m=426                 7/10 SAT   9.01ms      > 5s        939.47ms    n/a         0.01x       11.2KB      n/a         1.31GB      n/a

@@ -115,7 +115,9 @@ defmodule ComparisonBench do
       {"picosat", &Picosat.solve/1},
       {"simple_sat 0.1.4", &SimpleSatV014.solve/1},
       {"dpll", &SimpleSatDpll.solve/1},
-      {"staged", &SimpleSatStaged.solve/1},
+      # SimpleSatStaged is compiled at run time, in quick mode only; a run-time
+      # capture keeps the full run free of an undefined-module warning.
+      {"staged", Function.capture(SimpleSatStaged, :solve, 1)},
       {"simple_sat", &SimpleSat.solve/1}
     ]
 
