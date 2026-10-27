@@ -128,16 +128,19 @@ defmodule SimpleSat do
     var = abs(unit)
     value = unit > 0
 
-    case assignment do
-      %{^var => ^value} -> record_units(rest, assignment)
-      %{^var => _other} -> :conflict
-      _unassigned -> record_units(rest, Map.put(assignment, var, value))
+    updated = Map.put(assignment, var, value)
+
+    cond do
+      map_size(updated) > map_size(assignment) -> record_units(rest, updated)
+      Map.fetch!(assignment, var) == value -> record_units(rest, assignment)
+      true -> :conflict
     end
   end
 
   # Apply the assigned literals to every clause: drop satisfied clauses, strip
   # falsified literals, conflict if a clause becomes empty. Returns :conflict or
   # {remaining clauses, new unit literals, shortest remaining clause}.
+  @compile {:inline, reduce_clause: 2, shorter: 2, record: 2}
   defp reduce(clauses, assigned), do: reduce(clauses, assigned, [], [], nil)
 
   defp reduce([], _assigned, acc, units, shortest), do: {acc, units, shortest}
@@ -191,6 +194,7 @@ defmodule SimpleSat do
   # true (clause satisfied), false (literal falsified) or nil (untouched).
   # A single assigned literal is matched by integer comparison; a batch is
   # looked up in the assignment map, one lookup per literal.
+  @compile {:inline, status: 2}
   defp status(literal, {:one, assigned}) when literal == assigned, do: true
   defp status(literal, {:one, assigned}) when literal == -assigned, do: false
   defp status(_literal, {:one, _assigned}), do: nil
